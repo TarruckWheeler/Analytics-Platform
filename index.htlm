@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Professional Analytics Platform with AI Integration">
+<meta name="author" content="Tarruck Wheeler, Stanford University">
+<title>NEXUS Analytics Platform – Professional Edition</title>
+
+<!-- Content‑Security‑Policy (tightened but still allows inline CSS/JS for this demo)-->
+<meta http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src  'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net 'unsafe-inline';
+        style-src   'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+        img-src     'self' data: https:;">
+
+<!-- External libraries (deferred) -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"
+        onerror="console.warn('D3.js failed to load – network graph disabled')"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+        onerror="console.warn('Leaflet failed to load – maps disabled')"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js"
+        onerror="console.warn('Chart.js failed to load – timeline disabled')"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"
+        onerror="console.warn('TensorFlow.js failed to load – using fallback AI')"></script>
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+<style>
+/* ==========  DESIGN TOKENS  ========== */
+:root{
+    --primary:#2563eb;--primary-dark:#1d4ed8;--secondary:#7c3aed;--accent:#f59e0b;
+    --success:#10b981;--warning:#f59e0b;--error:#ef4444;--info:#06b6d4;
+    --neutral-50:#f8fafc;--neutral-100:#f1f5f9;--neutral-200:#e2e8f0;--neutral-300:#cbd5e1;
+    --neutral-400:#94a3b8;--neutral-500:#64748b;--neutral-600:#475569;--neutral-700:#334155;
+    --neutral-800:#1e293b;--neutral-900:#0f172a;
+    --font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --font-mono:'JetBrains Mono','Fira Code',monospace;
+    --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .05);
+    --shadow-md:0 4px 6px -1px rgb(0 0 0 / .1),0 2px 4px -2px rgb(0 0 0 / .1);
+    --shadow-lg:0 10px 15px -3px rgb(0 0 0 / .1),0 4px 6px -4px rgb(0 0 0 / .1);
+    --radius:8px;--radius-lg:12px
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    font-family:var(--font-family);
+    background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+    color:var(--neutral-900);
+    height:100vh;overflow:hidden;font-size:14px;line-height:1.5
+}
+
+/* ==========  LAYOUT GRID  ========== */
+.app-container{
+    display:grid;grid-template-areas:
+        "header header header"
+        "sidebar main panel"
+        "footer footer footer";
+    grid-template-rows:64px 1fr 48px;
+    grid-template-columns:280px 1fr 360px;
+    height:100vh;background:var(--neutral-50)
+}
+@media(max-width:1200px){
+    .app-container{grid-template-areas:
+        "header header"
+        "main panel"
+        "footer footer";
+        grid-template-columns:1fr 320px}
+    .sidebar{position:fixed;left:-280px;top:64px;height:calc(100vh - 112px);width:280px;z-index:999;transition:left .3s ease}
+    .sidebar.open{left:0}
+}
+@media(max-width:768px){
+    .app-container{grid-template-areas:
+        "header"
+        "main"
+        "footer";grid-template-columns:1fr}
+    .right-panel{position:fixed;right:-360px;top:64px;height:calc(100vh - 112px);width:360px;z-index:999;transition:right .3s ease}
+    .right-panel.open{right:0}
+}
+
+/* ==========  HEADER  ========== */
+.header{grid-area:header;background:linear-gradient(90deg,var(--primary-dark) 0%,var(--primary) 100%);
+    color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 24px;box-shadow:var(--shadow-lg);z-index:1000}
+.logo{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:700}
+.logo-icon{width:36px;height:36px;background:linear-gradient(45deg,#06b6d4,#3b82f6);border-radius:var(--radius);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;box-shadow:var(--shadow-md)}
+.header-actions{display:flex;align-items:center;gap:16px}
+.ai-status{display:flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(16,185,129,.2);
+    border-radius:16px;font-size:12px;font-weight:600}
+.ai-dot{width:8px;height:8px;background:#10b981;border-radius:50%;animation:pulse 2s ease-in-out infinite}
+.user-menu{display:flex;align-items:center;gap:12px;padding:8px 16px;background:rgba(255,255,255,.15);
+    border-radius:24px;backdrop-filter:blur(10px);cursor:pointer;transition:.2s}
+.user-menu:hover{background:rgba(255,255,255,.25);transform:translateY(-1px)}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f59e0b,#ef4444);
+    display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px}
+
+/* ==========  SIDEBAR  ========== */
+.sidebar{grid-area:sidebar;background:#fff;border-right:1px solid var(--neutral-200);overflow-y:auto;box-shadow:var(--shadow-sm)}
+.nav-section{padding:24px 20px;border-bottom:1px solid var(--neutral-100)}
+.nav-section h3{font-size:12px;text-transform:uppercase;color:var(--neutral-500);margin-bottom:16px;letter-spacing:.5px;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--radius);cursor:pointer;
+    transition:.2s;margin-bottom:4px;text-decoration:none;color:var(--neutral-700);font-weight:500}
+.nav-item:hover{background:var(--neutral-100);transform:translateX(4px);color:var(--neutral-900)}
+.nav-item.active{background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;box-shadow:var(--shadow-md)}
+.nav-icon{width:20px;height:20px;display:flex;align-items:center;justify-content:center}
+
+/* ==========  MAIN & VISUAL CONTAINERS  ========== */
+.main-content{grid-area:main;background:#fff;overflow:hidden;position:relative}
+.workspace{height:100%;display:flex;flex-direction:column}
+.workspace-header{padding:24px 32px;border-bottom:1px solid var(--neutral-200);background:var(--neutral-50);
+    display:flex;justify-content:space-between;align-items:center}
+.workspace-info h1{font-size:24px;font-weight:700;color:var(--neutral-900);margin-bottom:4px;letter-spacing:-.025em}
+.workspace-info p{color:var(--neutral-600);font-size:14px}
+.workspace-controls{display:flex;gap:12px}
+.viz-container{height:100%;position:relative;background:var(--neutral-50)}
+.network-graph{width:100%;height:100%;background:radial-gradient(circle,#fff 0%,#f8fafc 100%)} /* fallback */
+.map-container{width:100%;height:100%}
+
+/* ==========  BUTTONS  ========== */
+.btn{padding:8px 16px;border:none;border-radius:var(--radius);font-weight:600;cursor:pointer;transition:.2s;
+     display:inline-flex;align-items:center;gap:8px;font-size:14px;text-decoration:none}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dark);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.btn-secondary{background:var(--neutral-200);color:var(--neutral-700)}.btn-secondary:hover{background:var(--neutral-300)}
+.btn-ghost{background:transparent;color:var(--neutral-100);border:1px solid rgba(255,255,255,.3)}
+.btn-ghost:hover{background:rgba(255,255,255,.25);color:#fff}
+
+/* ==========  RIGHT PANEL (only essentials shown)  ========== */
+.right-panel{grid-area:panel;background:#fff;border-left:1px solid var(--neutral-200);overflow-y:auto;box-shadow:var(--shadow-sm)}
+.panel-section{padding:24px;border-bottom:1px solid var(--neutral-100)}
+.panel-title{font-size:16px;font-weight:600;margin-bottom:16px;color:var(--neutral-900);display:flex;align-items:center;gap:8px}
+
+/* Simple metric card (class renamed to avoid duplicate selector) */
+.metric-card-label{font-size:11px;color:var(--neutral-500);text-transform:uppercase;letter-spacing:.5px}
+
+/* ==========  FOOTER  ========== */
+.footer{grid-area:footer;background:var(--neutral-800);color:var(--neutral-300);display:flex;align-items:center;
+    justify-content:space-between;padding:0 24px;font-size:12px}
+.status-indicators{display:flex;gap:20px}.status-item{display:flex;align-items:center;gap:8px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--success);animation:pulse 2s ease-in-out infinite}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+
+<body>
+<div class="app-container">
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+        <div class="logo"><div class="logo-icon">N</div><span>NEXUS Analytics Platform</span></div>
+        <div class="header-actions">
+            <div class="ai-status"><div class="ai-dot"></div><span>AI Online</span></div>
+            <button class="btn btn-ghost" onclick="NexusApp.showHelp()" style="color:#fff;border-color:rgba(255,255,255,.3)">📖 Help</button>
+            <div class="user-menu" onclick="NexusApp.toggleUserMenu()">
+                <div class="user-avatar">TW</div>
+                <div><div style="font-weight:600;font-size:14px">T. Wheeler</div><div style="font-size:12px;opacity:.8">Researcher</div></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===== SIDEBAR ===== -->
+    <nav class="sidebar" id="sidebar">
+        <div class="nav-section">
+            <h3>Analytics Tools</h3>
+            <div class="nav-item active" onclick="NexusApp.switchWorkspace('network',event)"><div class="nav-icon">🕸️</div><span>Network Analysis</span></div>
+            <div class="nav-item"        onclick="NexusApp.switchWorkspace('geospatial',event)"><div class="nav-icon">🗺️</div><span>Geospatial Analysis</span></div>
+            <div class="nav-item"        onclick="NexusApp.switchWorkspace('timeline',event)"><div class="nav-icon">📊</div><span>Timeline Analytics</span></div>
+            <div class="nav-item"        onclick="NexusApp.switchWorkspace('documents',event)"><div class="nav-icon">📄</div><span>Document Mining</span></div>
+        </div>
+        <div class="nav-section">
+            <h3>AI & Predictive</h3>
+            <div class="nav-item" onclick="NexusApp.switchWorkspace('ai',event)"><div class="nav-icon">🤖</div><span>AI Assistant</span></div>
+            <div class="nav-item" onclick="NexusApp.switchWorkspace('forecast',event)"><div class="nav-icon">🔮</div><span>Forecasting Engine</span></div>
+            <div class="nav-item" onclick="NexusApp.switchWorkspace('ml',event)"><div class="nav-icon">🧠</div><span>Machine Learning</span></div>
+        </div>
+        <div class="nav-section">
+            <h3>Collaboration</h3>
+            <div class="nav-item" onclick="NexusApp.switchWorkspace('chat',event)"><div class="nav-icon">💬</div><span>Team Chat</span></div>
+            <div class="nav-item" onclick="NexusApp.switchWorkspace('reports',event)"><div class="nav-icon">📋</div><span>Reports & Export</span></div>
+        </div>
+    </nav>
+
+    <!-- ===== MAIN CONTENT (only core workspaces included) ===== -->
+    <main class="main-content">
+        <div class="workspace">
+            <div class="workspace-header">
+                <div class="workspace-info">
+                    <h1 id="workspaceTitle">Network Analysis</h1>
+                    <p  id="workspaceSubtitle">Interactive relationship mapping and pattern discovery</p>
+                </div>
+                <div class="workspace-controls">
+                    <button class="btn btn-secondary" onclick="NexusApp.exportData()">📤 Export</button>
+                    <button class="btn btn-primary"   onclick="NexusApp.shareWorkspace()">🔗 Share</button>
+                </div>
+            </div>
+
+            <div class="workspace-content">
+                <!-- network -->
+                <div id="networkWorkspace"   class="viz-container"><svg class="network-graph" id="networkGraph"></svg></div>
+                <!-- map -->
+                <div id="geospatialWorkspace" class="viz-container hidden"><div id="mapContainer" class="map-container"></div></div>
+                <!-- timeline -->
+                <div id="timelineWorkspace"   class="viz-container hidden"><canvas id="timelineChart"></canvas></div>
+                <!-- simple placeholders for other views -->
+                <div id="aiWorkspace"         class="viz-container hidden"><div class="loading">AI workspace…</div></div>
+                <div id="documentsWorkspace"  class="viz-container hidden"><div class="loading">Documents…</div></div>
+                <div id="forecastWorkspace"   class="viz-container hidden"><div class="loading">Forecasts…</div></div>
+                <div id="mlWorkspace"         class="viz-container hidden"><div class="loading">ML models…</div></div>
+                <div id="chatWorkspace"       class="viz-container hidden"><div class="loading">Chat…</div></div>
+                <div id="reportsWorkspace"    class="viz-container hidden"><div class="loading">Reports…</div></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ===== RIGHT PANEL (stripped to metrics for brevity) ===== -->
+    <aside class="right-panel" id="rightPanel">
+        <div class="panel-section">
+            <h3 class="panel-title">📈 Platform Metrics</h3>
+            <div class="metrics-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+                <div class="metric-card">
+                    <div class="metric-value" id="entitiesCount"      style="font-size:24px;font-weight:700;color:var(--primary)">1,247</div>
+                    <div class="metric-card-label">Entities Tracked</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="relationshipsCount" style="font-size:24px;font-weight:700;color:var(--secondary)">3,492</div>
+                    <div class="metric-card-label">Relationships</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="confidenceScore"    style="font-size:24px;font-weight:700;color:var(--success)">94%</div>
+                    <div class="metric-card-label">AI Confidence</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="activeUsers"        style="font-size:24px;font-weight:700;color:var(--warning)">17</div>
+                    <div class="metric-card-label">Active Users</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <h3 class="panel-title">📡 Live Updates</h3>
+            <div class="live-feed" id="liveFeed" style="max-height:300px;overflow-y:auto">
+                <div class="feed-item"><div class="feed-timestamp">--:-- UTC</div><div class="feed-message">System initialised</div></div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="footer">
+        <div>© 2025 NEXUS Analytics Platform – Professional Edition</div>
+        <div class="status-indicators">
+            <div class="status-item"><div class="status-dot"></div><span>System Online</span></div>
+            <div class="status-item"><div class="status-dot" style="background:var(--warning)"></div><span>AI Ops: 1.9K ops/sec</span></div>
+            <div class="status-item"><div class="status-dot" style="background:var(--info)"></div><span>ML Models: 3 active</span></div>
+        </div>
+    </footer>
+</div>
+
+<!-- =======================================================
+      MAIN APPLICATION SCRIPT (inline for the "HTML‑only" requirement)
+========================================================= -->
+<script>
+(function(){
+'use strict';
+
+/* ---------- GLOBAL STATE ---------- */
+const AppState={
+    currentWorkspace:'network',
+    networkData:null,mapInstance:null,aiModel:null,isInitialized:false,
+    timers:{feed:null,metrics:null},
+    libs:{get d3(){return typeof d3!=='undefined'},
+          get leaflet(){return typeof L!=='undefined'},
+          get chart(){return typeof Chart!=='undefined'}}
+};
+
+/* ---------- UTILITIES ---------- */
+const U={
+    q:s=>document.querySelector(s),
+    qa:s=>document.querySelectorAll(s),
+    log:(lvl,msg,obj)=>console[lvl==='error'?'error':lvl==='warn'?'warn':'log'](`[NEXUS] ${msg}`,obj||''),
+    safe:(fn,ctx)=>{try{return fn()}catch(e){U.log('error',`in ${ctx}`,e)}},
+    note:(msg,type='info')=>{
+        const n=document.createElement('div');
+        n.style=`
+          position:fixed;top:80px;right:24px;
+          background:${type==='error'?'#ef4444':type==='success'?'#10b981':'#2563eb'};
+          color:#fff;padding:14px 22px;border-radius:8px;box-shadow:0 10px 15px -3px rgba(0,0,0,.1);
+          font-size:14px;z-index:10000;max-width:360px;animation:fadeIn .3s ease-out`;
+        n.textContent=msg;document.body.appendChild(n);
+        setTimeout(()=>n.style.opacity='0',3500);
+        setTimeout(()=>n.remove(),4000);
+    }
+};
+
+/* ---------- VISUALISATION ---------- */
+const Viz={
+    network(){
+        if(!AppState.libs.d3){U.log('warn','D3 missing');return;}
+        const svg=d3.select('#networkGraph'), w=svg.node().parentElement.clientWidth, h=svg.node().parentElement.clientHeight;
+        svg.attr('width',w).attr('height',h).selectAll('*').remove();
+        const nodes=[{id:'tech',name:'Tech Corp',priority:'high',value:100},
+                     {id:'research',name:'Research Init',priority:'medium',value:75},
+                     {id:'hub',name:'Innovation Hub',priority:'low',value:60}],
+              links=[{source:'tech',target:'research',strength:.8},
+                     {source:'tech',target:'hub',strength:.6},
+                     {source:'research',target:'hub',strength:.7}];
+        AppState.networkData={nodes,links};
+        const sim=d3.forceSimulation(nodes)
+            .force('link',d3.forceLink(links).id(d=>d.id).distance(120))
+            .force('charge',d3.forceManyBody().strength(-400))
+            .force('center',d3.forceCenter(w/2,h/2));
+        const g=svg.append('g');
+        g.selectAll('line').data(links).enter().append('line')
+            .attr('stroke','#94a3b8').attr('stroke-width',d=>1+d.strength*3).attr('stroke-opacity',.6);
+        const node=g.selectAll('circle').data(nodes).enter().append('circle')
+            .attr('r',d=>12+d.value/10)
+            .attr('fill',d=>({high:'#ef4444',medium:'#f59e0b',low:'#10b981'}[d.priority]||'#94a3b8'))
+            .attr('stroke','#fff').attr('stroke-width',2).style('cursor','pointer')
+            .call(d3.drag().on('start',dragStart).on('drag',drag).on('end',dragEnd))
+            .on('click',(e,d)=>App.analyseEntity(d));
+        const label=g.selectAll('text').data(nodes).enter().append('text')
+            .text(d=>d.name).attr('font-size',11).attr('font-weight',600).attr('text-anchor','middle').attr('dy',30).attr('fill','#1e293b');
+        sim.on('tick',()=>{
+            g.selectAll('line').attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+            node.attr('cx',d=>d.x).attr('cy',d=>d.y);label.attr('x',d=>d.x).attr('y',d=>d.y);
+        });
+        function dragStart(e,d){if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y}
+        function drag(e,d){d.fx=e.x;d.fy=e.y}
+        function dragEnd(e,d){if(!e.active)sim.alphaTarget(0);d.fx=d.fy=null}
+    },
+    map(){
+        if(!AppState.libs.leaflet)return;
+        const c=U.q('#mapContainer');if(!c)return;c.innerHTML='';
+        const map=L.map('mapContainer',{center:[37.7749,-122.4194],zoom:5});
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+        [[37.7749,-122.4194,'SF Tech','#3b82f6'],[40.7128,-74.006,'NYC Finance','#f59e0b']]
+            .forEach(([lat,lng,label,col])=>L.circleMarker([lat,lng],{color:col,fillColor:col,fillOpacity:.7,radius:8})
+            .bindPopup(label).addTo(map));
+        AppState.mapInstance=map;
+    },
+    timeline(){
+        if(!AppState.libs.chart)return;
+        const ctx=U.q('#timelineChart').getContext('2d');
+        new Chart(ctx,{type:'line',data:{labels:['Q1 2024','Q2 2024','Q3 2024','Q4 2024','Q1 2025'],
+            datasets:[{label:'AI Confidence',data:[72,78,82,87,94],borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,.1)',tension:.4,fill:true}]} ,
+            options:{responsive:true,maintainAspectRatio:false}});
+    }
+};
+
+/* ---------- APP CONTROLLER ---------- */
+const App={
+    init(){
+        U.log('info','Init platform');
+        Viz.network();
+        this.realTime();
+        AppState.isInitialized=true;
+        U.note('NEXUS ready','success');
+    },
+    /* workspace navigation */
+    switchWorkspace(ws,evt){
+        U.qa('.nav-item').forEach(i=>i.classList.remove('active'));
+        if(evt)evt.currentTarget.classList.add('active');
+        U.qa('.viz-container').forEach(c=>c.classList.add('hidden'));
+        const el=U.q(`#${ws}Workspace`);if(el){el.classList.remove('hidden');el.classList.add('fade-in')}
+        U.q('#workspaceTitle').textContent({
+            network:'Network Analysis',geospatial:'Geospatial Analysis',timeline:'Timeline Analytics',
+            ai:'AI Assistant',documents:'Document Mining',forecast:'Forecasting',ml:'Machine Learning',
+            chat:'Team Collaboration',reports:'Reports & Export'}[ws]||ws);
+        /* lazy init */
+        setTimeout(()=>{if(ws==='geospatial')Viz.map(); if(ws==='timeline')Viz.timeline();},100);
+        AppState.currentWorkspace=ws;
+    },
+    /* simple entity AI */
+    analyseEntity(ent){
+        U.note(`Analysed ${ent.name}`,'info');
+    },
+    /* metrics & feed */
+    realTime(){
+        AppState.timers.feed=setInterval(()=>this.feed(),8000);
+        AppState.timers.metrics=setInterval(()=>this.metrics(),6000);
+    },
+    feed(){
+        const feed=U.q('#liveFeed');if(!feed||!feed.isConnected)return;
+        const t=new Date().toISOString().substr(11,5)+' UTC';
+        const msg=['AI model retrained','Network scan done','Data pipeline synced'][Math.floor(Math.random()*3)];
+        const div=document.createElement('div');div.className='feed-item';
+        div.innerHTML=`<div class="feed-timestamp">${t}</div><div class="feed-message">${msg}</div>`;
+        feed.prepend(div);while(feed.children.length>6)feed.lastChild.remove();
+    },
+    metrics(){
+        const e=v=>{const el=U.q(`#${v}`);if(el){el.style.transform='scale(1.1)';setTimeout(()=>el.style.transform='scale(1)',200)}};
+        U.q('#entitiesCount').textContent=(1200+Math.floor(Math.random()*120)).toLocaleString();e('entitiesCount');
+        U.q('#relationshipsCount').textContent=(3400+Math.floor(Math.random()*300)).toLocaleString();e('relationshipsCount');
+        U.q('#confidenceScore').textContent=Math.floor(90+Math.random()*10)+'%';e('confidenceScore');
+        U.q('#activeUsers').textContent=15+Math.floor(Math.random()*5);e('activeUsers');
+    },
+    /* misc */
+    exportData(){U.note('Exporting data')},
+    shareWorkspace(){U.note('Share link created')},
+    toggleUserMenu(){U.note('User menu')},
+    showHelp(){alert('NEXUS Analytics Platform\n\nNavigation on the left,\nvisualisations in the centre,\nmetrics on the right.\n\nHave fun!')}
+};
+
+/* expose for inline handlers */
+window.NexusApp=App;
+
+/* ---------- BOOTSTRAP ---------- */
+document.addEventListener('DOMContentLoaded',()=>U.safe(()=>App.init(),'DOMContentLoaded'));
+
+/* cleanup */
+window.addEventListener('beforeunload',()=>{
+    clearInterval(AppState.timers.feed);clearInterval(AppState.timers.metrics);
+}, {once:true});
+
+})();
+</script>
+</body>
+</html>
